@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Method – Google Calendar Sync for The Events Calendar
  * Description: Keeps a rolling window of events from one or more public Google Calendars synced into The Events Calendar. Field-level three-way merge preserves local edits; source deletions trash the local event; venues are matched or created through TEC's venue API so Method – Mapbox for The Events Calendar geocodes them.
- * Version: 0.1.0
+ * Version: 0.1.1
  * Author: Rob Clark
  * Author URI: https://robclark.io
  * License: GPLv2 or later
@@ -41,7 +41,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'METHOD_GCAL_SYNC_VERSION', '0.1.0' );
+define( 'METHOD_GCAL_SYNC_VERSION', '0.1.1' );
 define( 'METHOD_GCAL_SYNC_FILE', __FILE__ );
 define( 'METHOD_GCAL_SYNC_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -64,13 +64,31 @@ final class Method_GCal_Sync {
 		// Everything else needs TEC. Late enough that TEC, ECP and child themes have registered.
 		add_action( 'init', [ __CLASS__, 'maybe_enable' ], 100 );
 
-		register_deactivation_hook( METHOD_GCAL_SYNC_FILE, [ 'Method_GCal_Sync\Scheduler', 'unschedule' ] );
+		register_deactivation_hook( METHOD_GCAL_SYNC_FILE, [ __CLASS__, 'deactivate' ] );
+	}
+
+	/**
+	 * Every scheduled run lives in the site it was created on, so a network-wide deactivation
+	 * has to visit each site; a single-site (or per-site) deactivation only touches this one.
+	 *
+	 * @param bool $network_wide
+	 */
+	public static function deactivate( $network_wide = false ): void {
+		if ( $network_wide && is_multisite() ) {
+			foreach ( get_sites( [ 'fields' => 'ids', 'number' => 0 ] ) as $site_id ) {
+				switch_to_blog( (int) $site_id );
+				Method_GCal_Sync\Scheduler::unschedule();
+				restore_current_blog();
+			}
+			return;
+		}
+		Method_GCal_Sync\Scheduler::unschedule();
 	}
 
 	public static function maybe_enable(): void {
 		if ( ! class_exists( 'Tribe__Events__Main' ) ) {
 			add_action( 'admin_notices', static function () {
-				if ( current_user_can( 'activate_plugins' ) ) {
+				if ( current_user_can( 'manage_options' ) ) {
 					echo '<div class="notice notice-warning"><p>' . esc_html__( 'Method – Google Calendar Sync needs The Events Calendar to be active.', 'method-tec-gcal-sync' ) . '</p></div>';
 				}
 			} );

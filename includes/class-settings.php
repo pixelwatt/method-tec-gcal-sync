@@ -36,6 +36,7 @@ final class Settings {
 			'api_key'       => '',
 			'calendars'     => [],
 			'window_days'   => 90,
+			'window_start'  => 'lookback', // lookback | month_start
 			'lookback_days' => 1,
 			'interval'      => 60,        // minutes; 0 disables the scheduled run
 			'post_status'   => 'publish',
@@ -64,6 +65,7 @@ final class Settings {
 		$settings['api_key']       = trim( (string) $settings['api_key'] );
 		$settings['window_days']   = max( 1, (int) $settings['window_days'] );
 		$settings['lookback_days'] = max( 0, (int) $settings['lookback_days'] );
+		$settings['window_start']  = 'month_start' === $settings['window_start'] ? 'month_start' : 'lookback';
 		$settings['interval']      = max( 0, (int) $settings['interval'] );
 		$settings['author']        = max( 0, (int) $settings['author'] );
 		$settings['delete_mode']   = 'delete' === $settings['delete_mode'] ? 'delete' : 'trash';
@@ -237,6 +239,17 @@ final class Settings {
 			'type'       => 'text_small',
 			'default'    => 90,
 			'attributes' => [ 'type' => 'number', 'min' => 1 ],
+		] );
+		$box->add_field( [
+			'name'    => __( 'Window starts', 'method-tec-gcal-sync' ),
+			'desc'    => __( 'Useful at launch so the current month is complete. The look-back below still applies as a floor, so nothing in progress is missed around the 1st.', 'method-tec-gcal-sync' ),
+			'id'      => $p . 'window_start',
+			'type'    => 'radio_inline',
+			'default' => 'lookback',
+			'options' => [
+				'lookback'    => __( 'A set number of days ago', 'method-tec-gcal-sync' ),
+				'month_start' => __( 'First day of the current month', 'method-tec-gcal-sync' ),
+			],
 		] );
 		$box->add_field( [
 			'name'       => __( 'Look back (days)', 'method-tec-gcal-sync' ),

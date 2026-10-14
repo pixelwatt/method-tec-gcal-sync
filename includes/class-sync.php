@@ -161,8 +161,10 @@ final class Sync {
 		$r        = $this->report;
 		$cal_id   = $calendar['calendar_id'];
 		$now      = time();
-		$time_min = gmdate( 'Y-m-d\TH:i:s\Z', $now - $this->settings['lookback_days'] * DAY_IN_SECONDS );
-		$time_max = gmdate( 'Y-m-d\TH:i:s\Z', $now + $this->settings['window_days'] * DAY_IN_SECONDS );
+		$min_ts   = $this->window_start( $now );
+		$max_ts   = $now + $this->settings['window_days'] * DAY_IN_SECONDS;
+		$time_min = gmdate( 'Y-m-d\TH:i:s\Z', $min_ts );
+		$time_max = gmdate( 'Y-m-d\TH:i:s\Z', $max_ts );
 
 		$response = $this->client->list_events( $cal_id, $time_min, $time_max );
 		if ( is_wp_error( $response ) ) {
@@ -196,8 +198,8 @@ final class Sync {
 		}
 
 		// Local events inside the window that Google did not return.
-		$min_utc = gmdate( 'Y-m-d H:i:s', $now - $this->settings['lookback_days'] * DAY_IN_SECONDS );
-		$max_utc = gmdate( 'Y-m-d H:i:s', $now + $this->settings['window_days'] * DAY_IN_SECONDS );
+		$min_utc = gmdate( 'Y-m-d H:i:s', $min_ts );
+		$max_utc = gmdate( 'Y-m-d H:i:s', $max_ts );
 
 		foreach ( $index as $event_id => $local ) {
 			if ( isset( $seen[ $event_id ] ) || 'trash' === $local['status'] ) {
@@ -223,6 +225,27 @@ final class Sync {
 			// Still exists — it was moved out of the window. Apply the move.
 			$this->apply_item( $calendar, $item, $cal_tz, $local['id'], false );
 		}
+	}
+
+	/**
+	 * Unix timestamp the window opens at. "lookback" is N days before now; "month_start" is
+	 * 00:00 on the 1st of the current month in the site's timezone — or the look-back, when
+	 * that is earlier, so an event still running across the 1st isn't dropped.
+	 */
+	private function window_start( int $now ): int {
+		$lookback = $now - $this->settings['lookback_days'] * DAY_IN_SECONDS;
+
+		if ( 'month_start' !== $this->settings['window_start'] ) {
+			return $lookback;
+		}
+
+		$month_start = ( new \DateTimeImmutable( '@' . $now ) )
+			->setTimezone( wp_timezone() )
+			->modify( 'first day of this month' )
+			->setTime( 0, 0, 0 )
+			->getTimestamp();
+
+		return (int) apply_filters( 'method_gcal_sync_window_start', min( $month_start, $lookback ), $now, $this->settings );
 	}
 
 	/**

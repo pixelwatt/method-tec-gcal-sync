@@ -5,7 +5,7 @@ Keeps a rolling window of events from one or more **public Google Calendars** sy
 - **Field-level three-way merge.** Edit a synced event locally and that field stops following Google; every other field keeps syncing. "Reset to Google values" puts it back.
 - **Source deletions are honoured.** An event removed from Google is trashed (or deleted) locally. Events you trash locally are never re-created.
 - **Venues matched, then created.** Google's one-line `location` resolves to an existing venue by alias → name → street address; only then is a venue created.
-- **Rolling window.** Only events from *lookback* days ago through *window* days ahead are touched.
+- **Rolling window.** Only events from *lookback* days ago through *window* days ahead are touched. A `month_start` option opens the window on the 1st of the current month instead — handy at launch so the current month looks complete.
 - **Multiple calendars**, each optionally tagged with an Event Category.
 - Runs via Action Scheduler (bundled with TEC), WP-Cron, WP-CLI, the settings page, or an external cron hitting a REST endpoint.
 
@@ -42,6 +42,7 @@ add_filter( 'method_gcal_sync_settings', function ( array $s ): array {
         [ 'calendar_id' => 'yyy@group.calendar.google.com', 'label' => 'Parks & Rec' ],
     ];
     $s['window_days']   = 120;   // default 90
+    $s['window_start']  = 'lookback'; // or 'month_start' — see below
     $s['lookback_days'] = 1;     // default 1
     $s['interval']      = 30;    // minutes; 0 disables the scheduled run (default 60)
     $s['post_status']   = 'publish';
@@ -54,6 +55,8 @@ add_filter( 'method_gcal_sync_settings', function ( array $s ): array {
 Save settings, then use **Preview (dry run)** on the settings page before the first real **Sync now**. The dry run lists every create/update/trash it would perform and every venue it would create.
 
 ## How a sync works
+
+The window runs from its start through `window_days` ahead. The start is `lookback_days` before now, or — with **Window starts: First day of the current month** — 00:00 on the 1st in the site's timezone, whichever is *earlier* (so an event still running across the 1st is never dropped from the window and mistaken for a deletion). Month mode is meant for a launch: turn it on, sync, and switch back; leaving it on just widens the window and costs nothing but a slightly larger fetch.
 
 For each calendar it fetches every single-instance event in the window (`singleEvents=true` expands recurrences server-side; each instance has a stable id and becomes an independent TEC event), then:
 
@@ -110,6 +113,7 @@ Filters:
 | `method_gcal_sync_settings( array $settings )` | Final say on every setting. |
 | `method_gcal_sync_use_method( bool )` | Put the fields on Method's options page. |
 | `method_gcal_sync_settings_url( string )` | Where "back to settings" goes in Method mode. |
+| `method_gcal_sync_window_start( int $timestamp, int $now, array $settings )` | Override where the window opens (fires only in `month_start` mode). |
 | `method_gcal_sync_rest_secret( string )` | Override the REST key. |
 | `method_gcal_sync_source_fields( array $fields, array $item, array $calendar )` | Change what's considered the source value of each synced field (e.g. prefix titles, inject cost). |
 | `method_gcal_sync_event_args( array $args, array $item, array $calendar, int $post_id )` | The `tribe_events()->set_args()` payload, before create/update. |
@@ -138,3 +142,12 @@ Venues: `_gcs_location_alias` (repeated), `_gcs_created` (set only on venues thi
 - Events already on the site before the plugin ran are not adopted; the first sync creates fresh posts for everything in the window. Trash the originals or narrow the window first.
 - Images in Google descriptions are not imported (Google strips them from the API's `description` anyway).
 - Updates go through `tribe_events()->where( 'id', $id )->set_args( … )->save()`. If a TEC release changes that path, `write()` in `class-sync.php` is the one place to adjust.
+
+## Multisite
+
+Site-activate it on the subsite that needs it; no network support is required or provided. Settings, the run lock, the schedule, the REST secret and all lookups are per-site. Two consequences of that:
+
+- WP-CLI needs the site: `wp --url=events.example.org method gcal-sync --dry-run`.
+- WP-Cron (and Action Scheduler's default runner) only fires on requests to that subsite, so a quiet subsite may go hours between runs. Point a real cron at the subsite's REST trigger URL instead.
+
+Network activation also works — each site gets its own schedule and settings — and network deactivation clears the schedule on every site.
